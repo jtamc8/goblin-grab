@@ -1,0 +1,731 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Goblin Grab</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root{--bg:#1d2b1a;--panel:#f3e7c9;--ink:#2b1d0e;--green:#6bb23f;--dark:#3d6b25;--gold:#f5d300}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);
+    font-family:"Trebuchet MS",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  .hidden{display:none!important}
+  #map{position:fixed;inset:0;background:#cfe3b8}
+  .leaflet-tile-pane{filter:saturate(1.3) hue-rotate(-10deg) contrast(.95) brightness(1.02)}
+  .leaflet-marker-icon:focus{outline:none}
+
+  /* HUD */
+  #hudTop{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;
+    gap:8px;padding:10px 12px;z-index:1000;pointer-events:none;flex-wrap:wrap}
+  .pill{pointer-events:auto;background:rgba(29,43,26,.9);color:var(--panel);border:2px solid var(--green);
+    border-radius:999px;padding:6px 12px;font-weight:700;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.35);
+    display:flex;gap:6px;align-items:center;white-space:nowrap}
+  .pill svg{width:20px;height:20px}
+  .brand{font-size:16px;letter-spacing:.5px}
+  #nearby.alert{border-color:var(--gold);color:var(--gold);animation:flash 1s ease-in-out infinite}
+  @keyframes flash{50%{box-shadow:0 0 16px var(--gold)}}
+  #hudBottom{position:fixed;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:10px;z-index:1000;pointer-events:none}
+  .btn{pointer-events:auto;cursor:pointer;border:3px solid var(--ink);background:var(--panel);color:var(--ink);
+    font:inherit;font-weight:800;font-size:15px;padding:10px 18px;border-radius:14px;box-shadow:0 4px 0 var(--ink)}
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 var(--ink)}
+  .btn.primary{background:var(--green);color:#fff;text-shadow:0 1px 0 rgba(0,0,0,.4)}
+  .btn.gold{background:var(--gold)}
+  #dpad{position:fixed;left:14px;bottom:84px;z-index:1000;display:grid;grid-template-columns:repeat(3,50px);grid-template-rows:repeat(3,50px);gap:4px}
+  #dpad button{border:2px solid var(--ink);border-radius:12px;background:rgba(243,231,201,.92);font-size:20px;font-weight:900;
+    cursor:pointer;touch-action:none;color:var(--ink)}
+  #dpad button:active{background:var(--gold)}
+  #dpad .up{grid-column:2;grid-row:1}#dpad .left{grid-column:1;grid-row:2}#dpad .right{grid-column:3;grid-row:2}#dpad .down{grid-column:2;grid-row:3}
+  #dpad .fast{grid-column:2;grid-row:2;font-size:11px}
+  #dpad .fast.on{background:var(--gold)}
+
+  #toast{position:fixed;left:50%;top:64px;transform:translateX(-50%);z-index:3000;background:rgba(29,43,26,.95);color:var(--panel);
+    border:2px solid var(--green);padding:10px 16px;border-radius:12px;font-weight:700;max-width:90vw;text-align:center;
+    opacity:0;transition:opacity .25s;pointer-events:none}
+  #toast.show{opacity:1}
+
+  /* Map markers */
+  .gob{width:54px;height:54px;animation:bob 1.6s ease-in-out infinite;transform-origin:50% 90%;cursor:pointer}
+  .gob img{width:100%;height:100%;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45));pointer-events:none}
+  .gob.yellow img{filter:drop-shadow(0 0 5px #fff36b) drop-shadow(0 0 12px #ffd000)}
+  @keyframes bob{0%,100%{transform:translateY(0) scaleY(1)}50%{transform:translateY(-6px) scaleY(1.05)}}
+  .me{position:relative;width:24px;height:24px}
+  .me .dot{position:absolute;inset:4px;border-radius:50%;background:#2d7cff;border:3px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.5)}
+  .me .pulse{position:absolute;inset:0;border-radius:50%;background:rgba(45,124,255,.4);animation:pulse 2s ease-out infinite}
+  @keyframes pulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(3);opacity:0}}
+  .den{width:44px;height:44px;cursor:pointer}
+  .den img{width:100%;height:100%;filter:drop-shadow(0 2px 2px rgba(0,0,0,.4));pointer-events:none}
+  .den.empty{filter:grayscale(1) opacity(.55)}
+
+  /* Overlays */
+  .overlay{position:fixed;inset:0;z-index:2000}
+  #start{background:radial-gradient(circle at 50% 30%,#3f6b2a,#14200f 75%);display:flex;align-items:center;justify-content:center;padding:16px}
+  .card{background:var(--panel);border:4px solid var(--ink);border-radius:20px;padding:22px;box-shadow:0 8px 0 var(--ink);
+    text-align:center;max-width:420px;width:100%}
+  .card h1{margin:4px 0 2px;font-size:38px;letter-spacing:1px;color:var(--dark);text-shadow:2px 2px 0 #c8dca0}
+  .card p{margin:8px 0;line-height:1.4}
+  .card .small{font-size:13px;opacity:.75}
+  .card .row{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+  .hero{width:140px;height:140px;animation:bob 1.6s ease-in-out infinite}
+
+  #enc{background:#000}
+  #enc canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+  .encTop{position:absolute;top:12px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;
+    background:rgba(243,231,201,.92);border:3px solid var(--ink);border-radius:14px;padding:6px 16px;min-width:180px}
+  .encTop .nm{font-weight:900;font-size:20px}
+  .encTop .gr{font-size:13px;font-weight:700;opacity:.8}
+  .encTop.yellow{background:var(--gold)}
+  .encBottom{position:absolute;bottom:16px;left:12px;right:12px;display:flex;justify-content:space-between;align-items:center;pointer-events:none}
+  #encResult{position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+  #encResult .card.yellow{background:linear-gradient(160deg,#fff7a8,#f5d300);animation:glow 1.2s ease-in-out infinite}
+  @keyframes glow{50%{box-shadow:0 8px 0 var(--ink),0 0 40px #fff36b}}
+  #encResult img{width:130px;height:130px}
+
+  #ledger{background:var(--bg);overflow:auto;color:var(--panel);padding:16px 16px 40px}
+  #ledger .head{display:flex;justify-content:space-between;align-items:center;gap:10px;max-width:900px;margin:0 auto}
+  #ledger h2{margin:0;font-size:28px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;max-width:900px;margin:14px auto}
+  .stat{background:rgba(243,231,201,.08);border:2px solid var(--green);border-radius:12px;padding:8px 10px}
+  .stat b{display:block;font-size:24px;color:#fff}
+  .stat span{font-size:12px;opacity:.8}
+  .dex{display:flex;gap:10px;max-width:900px;margin:0 auto 14px;flex-wrap:wrap}
+  .dexe{flex:1;min-width:220px;display:flex;gap:10px;align-items:center;background:var(--panel);color:var(--ink);border:3px solid var(--ink);border-radius:14px;padding:8px}
+  .dexe img{width:64px;height:64px}
+  .dexe img.sil{filter:brightness(0) opacity(.6)}
+  .dexe small{display:block;opacity:.7}
+  .controls{display:flex;gap:10px;align-items:center;max-width:900px;margin:0 auto 10px;flex-wrap:wrap;font-weight:700}
+  .controls select{font:inherit;padding:4px 8px;border-radius:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;max-width:900px;margin:0 auto}
+  .gcard{background:var(--panel);color:var(--ink);border:3px solid var(--ink);border-radius:14px;padding:8px;text-align:center;position:relative}
+  .gcard.yellow{background:linear-gradient(160deg,#fff7a8,#f5d300)}
+  .gcard img{width:90px;height:90px}
+  .gcard .nm{font-weight:900}
+  .gcard .meta{font-size:12px;opacity:.75}
+  .gcard button{margin-top:6px;font:inherit;font-size:12px;border:2px solid var(--ink);border-radius:8px;background:#fff;cursor:pointer;padding:2px 8px}
+  .empty-msg{text-align:center;opacity:.7;margin:30px auto}
+  .linkbtn{background:none;border:none;color:#e88;text-decoration:underline;cursor:pointer;font:inherit;font-size:13px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="hudTop">
+  <div class="pill brand">Goblin Grab</div>
+  <div class="pill" id="nearby">…</div>
+  <div class="pill"><span id="sackIcon"></span><span id="sackCount">0</span></div>
+</div>
+<div id="hudBottom">
+  <button class="btn primary" id="ledgerBtn">Ledger (<span id="caughtCount">0</span>)</button>
+  <button class="btn hidden" id="recenter">Recenter</button>
+  <div class="pill" id="modePill" style="pointer-events:none">…</div>
+</div>
+<div id="dpad" class="hidden">
+  <button class="up" data-k="up">▲</button>
+  <button class="left" data-k="left">◀</button>
+  <button class="fast" id="fastBtn">RUN</button>
+  <button class="right" data-k="right">▶</button>
+  <button class="down" data-k="down">▼</button>
+</div>
+<div id="toast"></div>
+
+<div id="start" class="overlay">
+  <div class="card">
+    <img class="hero" id="heroImg" alt="">
+    <h1>Goblin Grab</h1>
+    <p>Goblins are loose in your neighborhood. Walk around, find them, and stuff them in a sack.</p>
+    <p class="small">There is only one kind of goblin. About one in every thousand is <b>yellow</b>.</p>
+    <div class="row">
+      <button class="btn primary" id="gpsBtn">Use my real location</button>
+      <button class="btn" id="demoBtn">Demo mode (walk with keys / D-pad)</button>
+    </div>
+    <p class="small" style="margin-top:14px">Suggested by Greg.</p>
+  </div>
+</div>
+
+<div id="enc" class="overlay hidden">
+  <canvas id="encCanvas"></canvas>
+  <div class="encTop" id="encTop"><div class="nm" id="encName"></div><div class="gr" id="encGrime"></div></div>
+  <div class="encBottom">
+    <div class="pill"><span class="sackIconSlot"></span><span id="encSacks">0</span></div>
+    <button class="btn" id="runBtn" style="pointer-events:auto">Run away</button>
+  </div>
+  <div id="encResult" class="hidden">
+    <div class="card" id="resCard">
+      <img id="resImg" alt="">
+      <h1 id="resTitle" style="font-size:28px"></h1>
+      <p id="resSub"></p>
+      <p class="small" id="resCount"></p>
+      <div class="row">
+        <button class="btn primary" id="resBack">Back to map</button>
+        <button class="btn" id="resLedger">Open ledger</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="ledger" class="overlay hidden">
+  <div class="head"><h2>Goblin Ledger</h2><button class="btn" id="ledgerClose">Close</button></div>
+  <div class="stats">
+    <div class="stat"><b id="stCaught">0</b><span>Goblins bagged</span></div>
+    <div class="stat"><b id="stYellow">0</b><span>Yellow goblins bagged</span></div>
+    <div class="stat"><b id="stSeen">0</b><span>Encounters</span></div>
+    <div class="stat"><b id="stThrown">0</b><span>Sacks thrown</span></div>
+    <div class="stat"><b id="stSpotted">0</b><span>Goblins spawned near you</span></div>
+  </div>
+  <div class="dex">
+    <div class="dexe"><img id="dexG" alt=""><div><b>#001 Goblin</b><small id="dexGtxt"></small></div></div>
+    <div class="dexe"><img id="dexY" alt=""><div><b id="dexYname">#001-Y ???</b><small id="dexYtxt"></small></div></div>
+  </div>
+  <div class="controls">
+    Sort: <select id="sortSel"><option value="new">Newest</option><option value="grime">Grimiest</option><option value="name">Name</option></select>
+    <label><input type="checkbox" id="yellowOnly"> Yellow only</label>
+  </div>
+  <div class="grid" id="grid"></div>
+  <p style="text-align:center;margin-top:30px"><button class="linkbtn" id="resetBtn">Reset all progress</button></p>
+</div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const params = new URLSearchParams(location.search);
+const YELLOW_RATE = params.has('yellow') ? 0.5 : 1 / 1000;   // ?yellow in the URL = test mode
+const RANGE = 70;                 // metres you must be within to interact
+const DEFAULT_POS = [40.7812, -73.9665];
+const TARGET_GOBLINS = 10;
+const SAVE_KEY = 'goblin-grab-v1';
+
+/* ---------- Art ---------- */
+function goblinSVG(yellow) {
+  const skin = yellow ? '#f7d81c' : '#6bb23f', shade = yellow ? '#c9a200' : '#457d26', ear = yellow ? '#ebc90f' : '#5a9c33';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <ellipse cx="60" cy="114" rx="30" ry="5" fill="rgba(0,0,0,.25)"/>
+  <rect x="44" y="92" width="10" height="20" rx="4" fill="${shade}"/><rect x="66" y="92" width="10" height="20" rx="4" fill="${shade}"/>
+  <ellipse cx="46" cy="112" rx="9" ry="4" fill="${shade}"/><ellipse cx="74" cy="112" rx="9" ry="4" fill="${shade}"/>
+  <path d="M37 76 Q22 84 25 97" stroke="${shade}" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <path d="M83 76 Q98 84 95 97" stroke="${shade}" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <ellipse cx="60" cy="82" rx="24" ry="20" fill="${skin}"/>
+  <path d="M38 88 L82 88 L76 103 L66 96 L60 105 L54 96 L44 103 Z" fill="#7a4a24"/>
+  <path d="M38 88 L82 88" stroke="#4b2e12" stroke-width="3"/>
+  <path d="M35 42 L3 24 L30 58 Z" fill="${ear}"/><path d="M85 42 L117 24 L90 58 Z" fill="${ear}"/>
+  <path d="M31 45 L13 33 L30 53 Z" fill="#e48a8a" opacity=".55"/><path d="M89 45 L107 33 L90 53 Z" fill="#e48a8a" opacity=".55"/>
+  <ellipse cx="60" cy="48" rx="28" ry="24" fill="${skin}"/>
+  <path d="M40 37 L56 43" stroke="${shade}" stroke-width="4" stroke-linecap="round"/><path d="M80 37 L64 43" stroke="${shade}" stroke-width="4" stroke-linecap="round"/>
+  <ellipse cx="49" cy="48" rx="6.5" ry="5" fill="#fff8d0"/><ellipse cx="71" cy="48" rx="6.5" ry="5" fill="#fff8d0"/>
+  <circle cx="50" cy="49" r="2.8" fill="#c00"/><circle cx="70" cy="49" r="2.8" fill="#c00"/>
+  <path d="M60 49 Q67 58 60 61 Q55 58 60 49" fill="${shade}"/>
+  <path d="M43 62 Q60 76 77 62 Q60 68 43 62Z" fill="#3a1010"/>
+  <path d="M49 64 L51.5 70 L54 65.6Z M66 65.6 L68.5 70 L71 64Z" fill="#fff"/>
+  </svg>`;
+}
+const svgURL = s => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(s);
+const URL_G = svgURL(goblinSVG(false)), URL_Y = svgURL(goblinSVG(true));
+const gobURL = y => y ? URL_Y : URL_G;
+const SACK_SVG = `<svg viewBox="0 0 32 32"><path d="M11 9 Q3 16 6 25 Q16 31 26 25 Q29 16 21 9Z" fill="#b8874f" stroke="#6b3f1d" stroke-width="1.5"/><path d="M11 7.5 L9 3 L13 5 L16 2 L19 5 L23 3 L21 7.5Z" fill="#c99a62" stroke="#6b3f1d" stroke-width="1"/><rect x="10" y="7.5" width="12" height="3" rx="1.5" fill="#6b3f1d"/></svg>`;
+const DEN_URL = svgURL(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="32" cy="58" rx="24" ry="4" fill="rgba(0,0,0,.3)"/><path d="M28 14 L20 4 M32 14 L32 2 M36 14 L44 4" stroke="#4b2e12" stroke-width="3" stroke-linecap="round"/><path d="M8 57 L32 13 L56 57Z" fill="#8a5a2b" stroke="#4b2e12" stroke-width="3" stroke-linejoin="round"/><path d="M14 46 L50 46 M19 36 L45 36" stroke="#5c3a17" stroke-width="2"/><path d="M23 57 Q32 34 41 57Z" fill="#2a1606"/><circle cx="29" cy="49" r="1.6" fill="#f33"/><circle cx="35" cy="49" r="1.6" fill="#f33"/></svg>`);
+
+const imgG = new Image(); imgG.src = URL_G;
+const imgY = new Image(); imgY.src = URL_Y;
+document.querySelectorAll('#sackIcon,.sackIconSlot').forEach(e => e.innerHTML = SACK_SVG);
+$('#heroImg').src = URL_G;
+
+/* ---------- Save ---------- */
+const defaultSave = () => ({ caught: [], sacks: 20, seen: 0, thrown: 0, spawned: 0, yellowSpawned: 0 });
+function loadSave() {
+  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && Array.isArray(s.caught)) return Object.assign(defaultSave(), s); } catch (e) {}
+  return defaultSave();
+}
+let save = loadSave();
+function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} updateHud(); }
+
+/* ---------- Helpers ---------- */
+const lerp = (a, b, t) => a + (b - a) * t;
+const pick = a => a[Math.floor(Math.random() * a.length)];
+function distM(a, b) {
+  const R = 6371000, r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLng = (b[1] - a[1]) * r;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+const offset = (p, dx, dy) => [p[0] + dy / 111320, p[1] + dx / (111320 * Math.cos(p[0] * Math.PI / 180))];
+function randAround(p, min, max) {
+  const a = Math.random() * Math.PI * 2, r = min + Math.sqrt(Math.random()) * (max - min);
+  return offset(p, Math.cos(a) * r, Math.sin(a) * r);
+}
+const N1 = ['Gr', 'Sn', 'Bl', 'Kr', 'Sk', 'Gn', 'Fl', 'Zn', 'Dr', 'Br', 'Sl', 'M', 'N', 'Z', 'W', 'Pl'];
+const N2 = ['ub', 'ik', 'org', 'azz', 'ok', 'im', 'ug', 'eep', 'izz', 'arg', 'oop', 'unk', 'ib', 'ax', 'ort'];
+const N3 = ['', '', '', 'le', 'bo', 'nik', 'wort', 'o', 'sy', 'gut', 'bert'];
+const goblinName = () => { const n = pick(N1) + pick(N2) + pick(N3); return n[0].toUpperCase() + n.slice(1); };
+const rollGrime = y => Math.round((y ? 400 : 30) + Math.pow(Math.random(), 1.6) * (y ? 1600 : 1100));
+
+let toastT;
+function toast(msg, ms = 2600) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
+
+/* ---------- World / map ---------- */
+let map, meMarker, rangeCircle, pos = null, mode = null, follow = true;
+const goblins = [], dens = [];
+let gid = 0;
+
+function startGame(p, m) {
+  pos = p; mode = m;
+  $('#start').classList.add('hidden');
+  map = L.map('map', { zoomControl: false, keyboard: false, minZoom: 15, maxZoom: 19 }).setView(pos, 18);
+  // OSM's tile servers block pages with no Referer (opened from file://) and CARTO now needs an API key,
+  // so use Esri's street map, which needs neither.
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Sources: Esri, HERE, Garmin, OpenStreetMap contributors' }).addTo(map);
+  rangeCircle = L.circle(pos, { radius: RANGE, color: '#ffd84a', weight: 2, dashArray: '4 6', fillOpacity: 0.07, interactive: false }).addTo(map);
+  meMarker = L.marker(pos, { icon: L.divIcon({ className: '', html: '<div class="me"><div class="pulse"></div><div class="dot"></div></div>', iconSize: [24, 24], iconAnchor: [12, 12] }), interactive: false, zIndexOffset: 1000 }).addTo(map);
+  map.on('dragstart', () => { follow = false; $('#recenter').classList.remove('hidden'); });
+  for (let i = 0; i < TARGET_GOBLINS; i++) spawnGoblin();
+  ensureDens();
+  setInterval(worldTick, 2500);
+  $('#modePill').textContent = m === 'gps' ? 'GPS' : 'Demo';
+  if (m === 'demo') { $('#dpad').classList.remove('hidden'); requestAnimationFrame(moveLoop); }
+  updateHud(); updateNearby();
+  toast(m === 'gps' ? 'Go outside. Find goblins. Tap them when they\'re inside your yellow circle.' : 'Demo mode: walk with WASD / arrow keys (Shift to run) or the D-pad.', 4000);
+}
+
+function setPos(p) {
+  pos = p; meMarker.setLatLng(p); rangeCircle.setLatLng(p);
+  if (follow) map.panTo(p, { animate: mode === 'gps' });
+}
+
+function goblinIcon(g) {
+  return L.divIcon({ className: '', iconSize: [54, 54], iconAnchor: [27, 48],
+    html: `<div class="gob${g.yellow ? ' yellow' : ''}" style="animation-delay:-${(Math.random() * 2).toFixed(2)}s"><img src="${gobURL(g.yellow)}" alt=""></div>` });
+}
+function spawnGoblin() {
+  const p = randAround(pos, 25, 260), yellow = Math.random() < YELLOW_RATE;
+  const g = { id: ++gid, lat: p[0], lng: p[1], yellow, grime: rollGrime(yellow), name: goblinName(), expires: Date.now() + (180 + Math.random() * 300) * 1000 };
+  g.marker = L.marker(p, { icon: goblinIcon(g), zIndexOffset: yellow ? 500 : 0 }).addTo(map);
+  g.marker.on('click', () => tryEncounter(g));
+  goblins.push(g); save.spawned++; if (yellow) save.yellowSpawned++;
+  return g;
+}
+function removeGoblin(g) { const i = goblins.indexOf(g); if (i < 0) return; map.removeLayer(g.marker); goblins.splice(i, 1); }
+
+const denIcon = empty => L.divIcon({ className: '', iconSize: [44, 44], iconAnchor: [22, 40], html: `<div class="den${empty ? ' empty' : ''}"><img src="${DEN_URL}" alt=""></div>` });
+function ensureDens() {
+  for (let i = dens.length - 1; i >= 0; i--) if (distM(pos, [dens[i].lat, dens[i].lng]) > 900) { map.removeLayer(dens[i].marker); dens.splice(i, 1); }
+  let near = dens.filter(d => distM(pos, [d.lat, d.lng]) < 400).length;
+  while (near < 3) {
+    const p = randAround(pos, 60, 380), d = { lat: p[0], lng: p[1], readyAt: 0, empty: false };
+    d.marker = L.marker(p, { icon: denIcon(false) }).addTo(map);
+    d.marker.on('click', () => visitDen(d));
+    dens.push(d); near++;
+  }
+}
+function refreshDens() {
+  const now = Date.now();
+  for (const d of dens) { const e = now < d.readyAt; if (e !== d.empty) { d.empty = e; d.marker.setIcon(denIcon(e)); } }
+}
+function visitDen(d) {
+  const dist = distM(pos, [d.lat, d.lng]);
+  if (dist > RANGE) return toast(`That goblin den is ${Math.round(dist)} m away. Get closer.`);
+  const now = Date.now();
+  if (now < d.readyAt) return toast(`Den's picked clean. Restocks in ${Math.ceil((d.readyAt - now) / 1000)}s.`);
+  const n = 3 + Math.floor(Math.random() * 4);
+  save.sacks += n; d.readyAt = now + 150000; persist(); refreshDens();
+  toast(`You rummaged through the goblin den: +${n} sacks`);
+}
+
+function worldTick() {
+  const now = Date.now();
+  for (let i = goblins.length - 1; i >= 0; i--) {
+    const g = goblins[i]; if (E && E.g === g) continue;
+    if (now > g.expires || distM(pos, [g.lat, g.lng]) > 600) removeGoblin(g);
+  }
+  const near = goblins.filter(g => distM(pos, [g.lat, g.lng]) < 300).length;
+  if (near < TARGET_GOBLINS) spawnGoblin();
+  if (near < TARGET_GOBLINS - 4) spawnGoblin();
+  ensureDens(); refreshDens(); updateNearby(); persist();
+}
+
+function updateHud() { $('#sackCount').textContent = save.sacks; $('#caughtCount').textContent = save.caught.length; }
+function updateNearby() {
+  if (!pos) return;
+  const near = goblins.filter(g => distM(pos, [g.lat, g.lng]) < 300);
+  const y = near.find(g => g.yellow), el = $('#nearby');
+  if (y) {
+    el.textContent = 'A YELLOW GOBLIN IS NEARBY'; el.classList.add('alert');
+    if (!y.announced) { y.announced = true; toast('Something yellow is lurking nearby...', 4000); if (navigator.vibrate) navigator.vibrate([60, 60, 60]); }
+  } else { el.textContent = `${near.length} goblins nearby`; el.classList.remove('alert'); }
+}
+
+/* ---------- Movement (demo mode) ---------- */
+const keys = {};
+const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ShiftLeft: 'fast', ShiftRight: 'fast' };
+addEventListener('keydown', e => { const k = KEYMAP[e.code]; if (k) { keys[k] = true; if (k !== 'fast') e.preventDefault(); } });
+addEventListener('keyup', e => { const k = KEYMAP[e.code]; if (k) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+document.querySelectorAll('#dpad button[data-k]').forEach(b => {
+  const k = b.dataset.k;
+  b.addEventListener('pointerdown', e => { e.preventDefault(); keys[k] = true; b.setPointerCapture(e.pointerId); });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => b.addEventListener(ev, () => keys[k] = false));
+});
+let runToggle = false;
+$('#fastBtn').addEventListener('click', () => { runToggle = !runToggle; $('#fastBtn').classList.toggle('on', runToggle); });
+let lastMove = 0;
+function moveLoop(ts) {
+  const dt = Math.min(0.1, (ts - (lastMove || ts)) / 1000); lastMove = ts;
+  if (!E && $('#ledger').classList.contains('hidden')) {
+    const dx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), dy = (keys.up ? 1 : 0) - (keys.down ? 1 : 0);
+    if (dx || dy) { const l = Math.hypot(dx, dy), sp = (keys.fast || runToggle) ? 45 : 14; setPos(offset(pos, dx / l * sp * dt, dy / l * sp * dt)); }
+  }
+  requestAnimationFrame(moveLoop);
+}
+
+/* ---------- Encounter ---------- */
+const cv = $('#encCanvas'), ctx = cv.getContext('2d');
+let E = null, dpr = 1, scenery = null;
+const SACK_BODY = new Path2D('M11 9 Q3 16 6 25 Q16 31 26 25 Q29 16 21 9Z');
+const SACK_TOP = new Path2D('M11 7.5 L9 3 L13 5 L16 2 L19 5 L23 3 L21 7.5Z');
+const SACK_STITCH = new Path2D('M10 16 Q16 18 22 16 M9 21 Q16 23.5 23 21');
+
+function tryEncounter(g) {
+  if (E) return;
+  const d = distM(pos, [g.lat, g.lng]);
+  if (d > RANGE) return toast(`Too far. That goblin is ${Math.round(d)} m away.`);
+  if (save.sacks <= 0) return toast('Out of sacks! Rummage through a goblin den (the huts).');
+  openEncounter(g);
+}
+function layout() {
+  const W = cv.clientWidth, H = cv.clientHeight, m = Math.min(W, H), R = m * 0.13, gyBase = H * 0.38;
+  return { W, H, R, gyBase, sx: W / 2, sy: H * 0.8, s: m * 0.075, ground: gyBase + R * 0.85 };
+}
+function resizeEnc() {
+  dpr = Math.min(2, devicePixelRatio || 1);
+  cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr);
+  const W = innerWidth, H = innerHeight, hz = H * 0.27;
+  scenery = { hz, trees: [], tufts: [] };
+  for (let x = -20; x < W + 40; x += 22 + Math.random() * 30) scenery.trees.push({ x, h: 40 + Math.random() * 60 });
+  for (let i = 0; i < 40; i++) scenery.tufts.push({ x: Math.random() * W, y: hz + 10 + Math.random() * (H - hz) });
+}
+addEventListener('resize', () => { if (E) resizeEnc(); });
+
+function openEncounter(g) {
+  save.seen++; persist();
+  const t = performance.now() / 1000;
+  E = { g, state: 'idle', st: t, now: t, last: 0, gt: Math.random() * 10, ringT: 0, popups: [], parts: [],
+        amp: g.yellow ? 0.28 : 0.2, speed: g.yellow ? 1.6 : 0.9, resultShown: false, fleeDir: Math.random() < .5 ? -1 : 1 };
+  $('#encName').textContent = g.yellow ? `${g.name} (YELLOW)` : g.name;
+  $('#encGrime').textContent = `Grime Level ${g.grime}`;
+  $('#encTop').classList.toggle('yellow', g.yellow);
+  $('#encResult').classList.add('hidden');
+  $('#enc').classList.remove('hidden');
+  resizeEnc(); updateEncSacks();
+  requestAnimationFrame(encFrame);
+}
+function updateEncSacks() { $('#encSacks').textContent = save.sacks; }
+function setState(s) { E.state = s; E.st = E.now; }
+function popup(text, x, y, color = '#fff', big = false) { E.popups.push({ text, x, y, color, t: E.now, big }); }
+function sparks(x, y, n, colors, spd, size) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = spd * (0.3 + Math.random() * 0.9);
+    E.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - spd * 0.4, life: 0, max: 0.6 + Math.random() * 0.7, c: colors[i % colors.length], s: size * (0.6 + Math.random() * 0.8), star: Math.random() < 0.6 });
+  }
+}
+
+cv.addEventListener('pointerdown', e => {
+  if (!E || E.state !== 'idle') return;
+  const lo = layout(), r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  if (Math.hypot(x - lo.sx, y - lo.sy) < lo.s * 2.2) {
+    E.state = 'aim'; E.ax = x; E.ay = y; E.trail = [{ x, y, t: performance.now() }];
+    cv.setPointerCapture(e.pointerId);
+  }
+});
+cv.addEventListener('pointermove', e => {
+  if (!E || E.state !== 'aim') return;
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, t = performance.now();
+  E.ax = x; E.ay = y; E.trail.push({ x, y, t });
+  while (E.trail.length > 2 && t - E.trail[0].t > 200) E.trail.shift();
+});
+['pointerup', 'pointercancel'].forEach(ev => cv.addEventListener(ev, () => { if (E && E.state === 'aim') release(); }));
+
+function release() {
+  const lo = layout(), tr = E.trail, now = performance.now();
+  const recent = tr.filter(p => now - p.t <= 100);
+  const a = recent.length > 1 ? recent[0] : tr[0], b = tr[tr.length - 1];
+  const dt = Math.max(16, b.t - a.t) / 1000, vx = (b.x - a.x) / dt, vy = (b.y - a.y) / dt, sp = -vy / lo.H;
+  if (sp < 0.6) { E.state = 'idle'; return; }          // not a flick: sack snaps back
+  save.sacks--; save.thrown++; persist(); updateEncSacks();
+  const kind = sp < 1.0 ? 'weak' : sp > 7 ? 'strong' : 'normal';
+  const slope = vx / -vy;
+  E.fx0 = b.x; E.fy0 = b.y; E.kind = kind;
+  if (kind === 'weak') { E.fy1 = lerp(b.y, lo.gyBase, 0.45); E.fx1 = b.x + slope * (b.y - E.fy1); }
+  else if (kind === 'strong') { E.fy1 = -lo.s * 3; E.fx1 = b.x + slope * (b.y - E.fy1); }
+  else { E.fy1 = lo.gyBase; E.fx1 = b.x + slope * (b.y - lo.gyBase) * 0.9; }
+  E.spin = (vx / lo.W) * 1.5 + (Math.random() - 0.5);
+  setState('fly');
+}
+
+function resolveThrow(gx, gy, ringFrac, lo) {
+  E.missDir = Math.random() < 0.5 ? -1 : 1;
+  if (E.kind === 'weak') { popup('Too weak!', E.fx1, E.fy1 - 30); return setState('miss'); }
+  if (E.kind === 'strong') { popup('Way too hard!', lo.W / 2, lo.H * 0.18); return setState('miss'); }
+  if (Math.abs(E.fx1 - gx) > lo.R * 0.9) { popup('Missed!', E.fx1, E.fy1 - lo.R * 0.6); return setState('miss'); }
+  const bonus = 1 + (1 - ringFrac);
+  const label = ringFrac < 0.35 ? 'Excellent!' : ringFrac < 0.6 ? 'Great!' : ringFrac < 0.85 ? 'Nice!' : '';
+  if (label) popup(label, gx, gy - lo.R * 1.5, '#ffe14d', true);
+  const base = E.g.yellow ? 0.22 : 0.5;
+  const pc = Math.max(0.03, Math.min(0.95, base * bonus * (1 - E.g.grime / 4000)));
+  const per = Math.cbrt(pc);
+  let shakes = 0; while (shakes < 3 && Math.random() < per) shakes++;
+  E.caught = shakes === 3; E.shakesShow = shakes;
+  E.hx = E.fx1; E.gx0 = gx; E.gy0 = gy;
+  sparks(E.hx, lo.gyBase, 14, ['#fff', '#cfe8a0'], lo.R * 3, lo.R * 0.12);
+  setState('absorb');
+}
+function afterAttempt() {
+  if (save.sacks <= 0) { const lo = layout(); popup('Out of sacks!', lo.W / 2, lo.H * 0.62, '#ff8a8a', true); setState('nosacks'); }
+  else setState('idle');
+}
+function onCaught() {
+  const g = E.g, lo = layout();
+  save.caught.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: g.name, yellow: g.yellow, grime: g.grime, t: Date.now() });
+  persist(); removeGoblin(g);
+  sparks(E.hx, lo.ground, g.yellow ? 80 : 26, g.yellow ? ['#fff36b', '#ffd000', '#fff', '#ffb000'] : ['#fff', '#ffe14d', '#9fe870'], lo.R * (g.yellow ? 6 : 4), lo.R * 0.16);
+  if (navigator.vibrate) navigator.vibrate(g.yellow ? [100, 50, 100, 50, 400] : 80);
+}
+function showResult() {
+  E.resultShown = true;
+  const g = E.g;
+  $('#resImg').src = gobURL(g.yellow);
+  $('#resTitle').textContent = g.yellow ? 'YELLOW GOBLIN BAGGED!' : 'Goblin bagged!';
+  $('#resSub').innerHTML = `<b>${g.name}</b> &middot; Grime Level ${g.grime}` + (g.yellow ? '<br>One in a thousand. Tell Greg immediately.' : '');
+  $('#resCount').textContent = `Goblins in your ledger: ${save.caught.length}`;
+  $('#resCard').classList.toggle('yellow', g.yellow);
+  $('#encResult').classList.remove('hidden');
+}
+function endEncounter(reason) {
+  if (!E) return;
+  const g = E.g;
+  if (reason === 'fled') { removeGoblin(g); toast(`${g.name} scampered off into the bushes.`); }
+  if (reason === 'nosacks') toast('Out of sacks! Rummage through a goblin den (the huts).');
+  E = null;
+  $('#enc').classList.add('hidden');
+  updateNearby();
+}
+$('#runBtn').addEventListener('click', () => { if (E && !['absorb', 'drop', 'wobble', 'caught'].includes(E.state)) endEncounter('run'); });
+$('#resBack').addEventListener('click', () => endEncounter('caught'));
+$('#resLedger').addEventListener('click', () => { endEncounter('caught'); openLedger(); });
+
+/* drawing */
+function drawScene(lo) {
+  const { W, H } = lo, hz = scenery.hz;
+  let g = ctx.createLinearGradient(0, 0, 0, hz);
+  g.addColorStop(0, '#7cc4f5'); g.addColorStop(1, '#d9f1ff');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, hz + 1);
+  ctx.fillStyle = '#8cba7c';
+  ctx.beginPath(); ctx.ellipse(W * 0.2, hz, W * 0.4, hz * 0.35, 0, Math.PI, 0); ctx.ellipse(W * 0.8, hz, W * 0.45, hz * 0.28, 0, Math.PI, 0); ctx.fill();
+  ctx.fillStyle = '#2f5d27';
+  for (const t of scenery.trees) { ctx.beginPath(); ctx.moveTo(t.x - t.h * 0.3, hz + 2); ctx.lineTo(t.x, hz - t.h); ctx.lineTo(t.x + t.h * 0.3, hz + 2); ctx.fill(); }
+  g = ctx.createLinearGradient(0, hz, 0, H);
+  g.addColorStop(0, '#8fcf5f'); g.addColorStop(1, '#3f7d2a');
+  ctx.fillStyle = g; ctx.fillRect(0, hz, W, H - hz);
+  ctx.fillStyle = 'rgba(150,115,70,.35)';
+  ctx.beginPath(); ctx.ellipse(W / 2, lo.ground, W * 0.46, lo.R * 0.55, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(40,90,30,.6)'; ctx.lineWidth = 2;
+  for (const t of scenery.tufts) { ctx.beginPath(); ctx.moveTo(t.x - 4, t.y - 6); ctx.lineTo(t.x, t.y); ctx.lineTo(t.x + 4, t.y - 7); ctx.moveTo(t.x, t.y); ctx.lineTo(t.x, t.y - 9); ctx.stroke(); }
+}
+function drawGoblin(x, y, R, alpha = 1) {
+  if (R <= 0.5) return;
+  ctx.save(); ctx.globalAlpha = alpha;
+  if (E.g.yellow) { ctx.shadowColor = '#ffe600'; ctx.shadowBlur = R * 0.6; }
+  ctx.drawImage(E.g.yellow ? imgY : imgG, x - R * 1.1, y - R * 1.1, R * 2.2, R * 2.2);
+  ctx.restore();
+}
+function drawRing(x, y, R, frac) {
+  ctx.save(); ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255,255,255,.85)';
+  ctx.beginPath(); ctx.arc(x, y, R * 1.15, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 5; ctx.strokeStyle = E.g.yellow ? '#ff6a00' : '#7CFC00';
+  ctx.beginPath(); ctx.arc(x, y, R * (0.2 + frac * 0.95), 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+function drawSack(x, y, s, rot = 0, alpha = 1) {
+  ctx.save(); ctx.globalAlpha = alpha; ctx.translate(x, y); ctx.rotate(rot);
+  const k = s / 13; ctx.scale(k, k); ctx.translate(-16, -17);
+  ctx.fillStyle = '#b8874f'; ctx.strokeStyle = '#6b3f1d'; ctx.lineWidth = 1.5;
+  ctx.fill(SACK_BODY); ctx.stroke(SACK_BODY);
+  ctx.fillStyle = '#c99a62'; ctx.lineWidth = 1; ctx.fill(SACK_TOP); ctx.stroke(SACK_TOP);
+  ctx.fillStyle = '#6b3f1d'; ctx.fillRect(10, 7.5, 12, 3);
+  ctx.strokeStyle = 'rgba(107,63,29,.6)'; ctx.setLineDash([1.2, 1.2]); ctx.stroke(SACK_STITCH); ctx.setLineDash([]);
+  ctx.restore();
+}
+function drawStar(x, y, r) {
+  ctx.beginPath(); ctx.moveTo(x, y - r);
+  ctx.quadraticCurveTo(x, y, x + r, y); ctx.quadraticCurveTo(x, y, x, y + r);
+  ctx.quadraticCurveTo(x, y, x - r, y); ctx.quadraticCurveTo(x, y, x, y - r); ctx.fill();
+}
+function outlinedText(text, x, y, size, color) {
+  ctx.font = `900 ${size}px "Trebuchet MS",system-ui,sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = Math.max(3, size / 6); ctx.strokeStyle = '#2b1d0e'; ctx.strokeText(text, x, y);
+  ctx.fillStyle = color; ctx.fillText(text, x, y);
+}
+
+function encFrame(ts) {
+  if (!E) return;
+  const now = ts / 1000;
+  if (!E.last) E.last = now;
+  const dt = Math.min(0.05, Math.max(0, now - E.last)); E.last = now; E.now = now;
+  const lo = layout(), { W, H, R } = lo, el = now - E.st;
+  if (['idle', 'aim', 'fly', 'miss', 'nosacks'].includes(E.state)) { E.gt += dt; E.ringT += dt; }
+  const gx = W / 2 + Math.sin(E.gt * E.speed) * W * E.amp;
+  const gy = lo.gyBase - Math.abs(Math.sin(E.gt * 3.4)) * R * 0.18;
+  const ringFrac = 1 - ((E.ringT % 1.8) / 1.8);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawScene(lo);
+  if (E.g.yellow && ['idle', 'aim', 'fly', 'miss'].includes(E.state) && Math.random() < 0.35)
+    sparks(gx + (Math.random() - 0.5) * R * 2, gy + (Math.random() - 0.5) * R * 2, 1, ['#fff36b', '#fff'], R * 0.6, R * 0.1);
+
+  switch (E.state) {
+    case 'idle':
+      drawGoblin(gx, gy, R); drawRing(gx, gy, R, ringFrac);
+      drawSack(lo.sx, lo.sy + Math.sin(now * 3) * 3, lo.s);
+      if (save.thrown < 3) outlinedText('Flick the sack at the goblin', W / 2, lo.sy + lo.s * 2, 15, '#fff');
+      break;
+    case 'aim':
+      drawGoblin(gx, gy, R); drawRing(gx, gy, R, ringFrac); drawSack(E.ax, E.ay, lo.s);
+      break;
+    case 'fly': {
+      const p = Math.min(1, el / 0.55);
+      const x = lerp(E.fx0, E.fx1, p), y = lerp(E.fy0, E.fy1, p) - Math.sin(Math.PI * p) * H * (E.kind === 'weak' ? 0.08 : 0.16);
+      drawGoblin(gx, gy, R); drawRing(gx, gy, R, ringFrac);
+      drawSack(x, y, lo.s * lerp(1, E.kind === 'weak' ? 0.75 : 0.55, p), p * E.spin * 6);
+      if (p >= 1) resolveThrow(gx, gy, ringFrac, lo);
+      break;
+    }
+    case 'miss': {
+      const p = Math.min(1, el / 0.7);
+      drawGoblin(gx, gy, R);
+      if (E.kind !== 'strong') drawSack(E.fx1 + E.missDir * p * lo.s * 2, E.fy1 + p * p * H * 0.45, lo.s * (E.kind === 'weak' ? 0.75 : 0.55), p * 4 * E.missDir, 1 - p);
+      if (p >= 1) afterAttempt();
+      break;
+    }
+    case 'absorb': {
+      const p = Math.min(1, el / 0.45);
+      drawGoblin(lerp(E.gx0, E.hx, p), lerp(E.gy0, lo.gyBase, p), R * (1 - p));
+      drawSack(E.hx, lo.gyBase, lo.s * 0.55, Math.sin(el * 30) * 0.15 * (1 - p));
+      if (p >= 1) setState('drop');
+      break;
+    }
+    case 'drop': {
+      const p = Math.min(1, el / 0.35);
+      drawSack(E.hx, lerp(lo.gyBase, lo.ground, p * p), lo.s * 0.55);
+      if (p >= 1) setState(E.shakesShow > 0 ? 'wobble' : 'burst');
+      break;
+    }
+    case 'wobble': {
+      const idx = Math.floor(el / 0.95), ph = el % 0.95;
+      const rot = ph < 0.55 ? Math.sin(ph / 0.55 * Math.PI * 2) * 0.4 : 0;
+      drawSack(E.hx, lo.ground, lo.s * 0.55, rot);
+      for (let i = 0; i < 3; i++) { ctx.fillStyle = i < Math.min(idx, 3) ? '#ffe14d' : 'rgba(255,255,255,.4)'; drawStar(W / 2 + (i - 1) * 28, lo.ground + lo.s * 1.4, 9); }
+      if (idx >= E.shakesShow) {
+        if (E.caught) { setState('caught'); onCaught(); popup(E.g.yellow ? 'YELLOW GOBLIN!!!' : 'Bagged!', E.hx, lo.ground - lo.R * 1.2, E.g.yellow ? '#fff36b' : '#fff', true); }
+        else setState('burst');
+      }
+      break;
+    }
+    case 'burst': {
+      const p = Math.min(1, el / 0.5);
+      if (!E.burstFx) { E.burstFx = true; sparks(E.hx, lo.ground, 18, ['#b8874f', '#c99a62', '#6b3f1d'], R * 4, R * 0.14); popup(pick(['It broke free!', 'Argh! It chewed through!', 'Escaped!']), E.hx, lo.ground - R * 1.3); }
+      drawSack(E.hx, lo.ground, lo.s * 0.55, 0, 1 - p);
+      drawGoblin(lerp(E.hx, gx, p), lerp(lo.ground, gy, p), R * (0.3 + 0.7 * p));
+      if (p >= 1) {
+        E.burstFx = false;
+        if (Math.random() < (E.g.yellow ? 0.22 : 0.1)) { popup('It\'s running away!', gx, gy - R * 1.4, '#ff8a8a', true); setState('flee'); }
+        else afterAttempt();
+      }
+      break;
+    }
+    case 'flee': {
+      const p = Math.min(1, el / 0.9);
+      drawGoblin(gx + p * W * 0.9 * E.fleeDir, gy - Math.abs(Math.sin(el * 14)) * R * 0.3, R);
+      if (p >= 1) endEncounter('fled');
+      break;
+    }
+    case 'caught':
+      drawSack(E.hx, lo.ground, lo.s * 0.55);
+      if (E.g.yellow && Math.random() < 0.5) sparks(E.hx, lo.ground, 2, ['#fff36b', '#ffd000'], R * 3, R * 0.14);
+      if (el > 1.0 && !E.resultShown) showResult();
+      break;
+    case 'nosacks':
+      drawGoblin(gx, gy, R);
+      if (el > 1.4) endEncounter('nosacks');
+      break;
+  }
+  if (!E) return;
+
+  for (let i = E.parts.length - 1; i >= 0; i--) {
+    const p = E.parts[i]; p.life += dt;
+    if (p.life >= p.max) { E.parts.splice(i, 1); continue; }
+    p.vy += 500 * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    ctx.globalAlpha = 1 - p.life / p.max; ctx.fillStyle = p.c;
+    if (p.star) drawStar(p.x, p.y, p.s); else { ctx.beginPath(); ctx.arc(p.x, p.y, p.s * 0.5, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+  for (let i = E.popups.length - 1; i >= 0; i--) {
+    const p = E.popups[i], a = now - p.t;
+    if (a > 1.2) { E.popups.splice(i, 1); continue; }
+    ctx.globalAlpha = Math.min(1, (1.2 - a) * 3);
+    outlinedText(p.text, Math.max(80, Math.min(W - 80, p.x)), p.y - a * 30, p.big ? 30 : 22, p.color);
+  }
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(encFrame);
+}
+
+/* ---------- Ledger ---------- */
+function openLedger() { renderLedger(); $('#ledger').classList.remove('hidden'); }
+function renderLedger() {
+  const c = save.caught, nY = c.filter(x => x.yellow).length;
+  $('#stCaught').textContent = c.length; $('#stYellow').textContent = nY;
+  $('#stSeen').textContent = save.seen; $('#stThrown').textContent = save.thrown; $('#stSpotted').textContent = save.spawned;
+  $('#dexG').src = URL_G; $('#dexY').src = URL_Y; $('#dexY').classList.toggle('sil', nY === 0);
+  $('#dexGtxt').textContent = `Caught: ${c.length - nY}. Common. Smells bad.`;
+  $('#dexYname').textContent = nY ? '#001-Y Yellow Goblin' : '#001-Y ???';
+  $('#dexYtxt').textContent = nY ? `Caught: ${nY}. Roughly 1 in 1000. Greg would be proud.` : `Not yet caught. ${save.yellowSpawned ? 'You have seen one spawn...' : 'Rumored to exist.'}`;
+  let list = c.slice();
+  if ($('#yellowOnly').checked) list = list.filter(x => x.yellow);
+  const s = $('#sortSel').value;
+  list.sort(s === 'grime' ? (a, b) => b.grime - a.grime : s === 'name' ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b.t - a.t);
+  $('#grid').innerHTML = list.length ? list.map(x => `
+    <div class="gcard${x.yellow ? ' yellow' : ''}">
+      <img src="${gobURL(x.yellow)}" alt="">
+      <div class="nm">${x.name}</div>
+      <div class="meta">Grime ${x.grime}${x.yellow ? ' &middot; YELLOW' : ''}</div>
+      <div class="meta">${new Date(x.t).toLocaleDateString()}</div>
+      <button data-id="${x.id}">Release</button>
+    </div>`).join('') : '<p class="empty-msg">No goblins here yet. Go bag some.</p>';
+}
+$('#grid').addEventListener('click', e => {
+  const id = e.target.dataset && e.target.dataset.id; if (!id) return;
+  const g = save.caught.find(x => x.id === id); if (!g) return;
+  if (!confirm(`Release ${g.name}${g.yellow ? ' (a YELLOW goblin!)' : ''} back into the wild?`)) return;
+  save.caught = save.caught.filter(x => x.id !== id); persist(); renderLedger();
+});
+$('#sortSel').addEventListener('change', renderLedger);
+$('#yellowOnly').addEventListener('change', renderLedger);
+$('#ledgerBtn').addEventListener('click', openLedger);
+$('#ledgerClose').addEventListener('click', () => $('#ledger').classList.add('hidden'));
+$('#resetBtn').addEventListener('click', () => {
+  if (!confirm('Wipe your whole goblin ledger and stats?')) return;
+  save = defaultSave(); persist(); renderLedger();
+});
+$('#recenter').addEventListener('click', () => { follow = true; $('#recenter').classList.add('hidden'); map.setView(pos, Math.max(map.getZoom(), 17)); });
+
+/* ---------- Start ---------- */
+$('#demoBtn').addEventListener('click', () => startGame(DEFAULT_POS, 'demo'));
+$('#gpsBtn').addEventListener('click', () => {
+  if (!navigator.geolocation) { toast('No location support here. Starting demo mode.'); return startGame(DEFAULT_POS, 'demo'); }
+  $('#gpsBtn').textContent = 'Finding you...'; $('#gpsBtn').disabled = true;
+  navigator.geolocation.watchPosition(
+    p => { const ll = [p.coords.latitude, p.coords.longitude]; if (!mode) startGame(ll, 'gps'); else if (mode === 'gps') setPos(ll); },
+    () => { if (!mode) { toast('Couldn\'t get your location. Starting demo mode.', 3500); startGame(DEFAULT_POS, 'demo'); } },
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 });
+});
+updateHud();
+</script>
+</body>
+</html>
